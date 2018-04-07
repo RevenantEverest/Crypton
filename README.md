@@ -10,6 +10,6 @@ addblock -data BLOCK_DATA: add a block to the blockchain
 printchain:                print all the blocks of the blockchain
 
 
-##How to use
+## How to use
 
 Clone the repo, and run `$go build main.go`. You can access the CLI commands by typing $./main **INSERT CLI COMMAND HERE**`
