@@ -8,6 +8,7 @@ import ("fmt"
         "math"
         "math/big"
         "encoding/binary"
+        "encoding/gob"
         "log"
         )
 var (
@@ -42,6 +43,22 @@ func NewBlock(data string, previousHash []byte) *Block {
   return block
 }
 
+func (b *Block) Serialize() []byte {
+  var result bytes.Buffer
+  encoder := gob.NewEncoder(&result)
+
+  err := encoder.Encode(b)
+  return result.Bytes()
+}
+
+func DeserializeBlock(d []byte) *Block {
+  var block Block
+  decoder := gob.NewDecoder(bytes.NewReader(d))
+  err := decoder.Decode(&block)
+
+  return &block
+}
+
 func CreateGenesisBlock() *Block {
   return NewBlock("Genesis Block", []byte{})
 }
@@ -49,17 +66,65 @@ func CreateGenesisBlock() *Block {
 
 /*======== Blockchain ========*/
 type Blockchain struct {
-  blocks []*Block
+  //blocks []*Block
+  tip []byte
+  db *bolt.DB
 }
 
 func (bc *Blockchain) AddBlock(data string) {
-  prevBlock := bc.blocks[len(bc.blocks)-1]
-  newBlock := NewBlock(data, prevBlock.Hash)
-  bc.blocks = append(bc.blocks, newBlock)
+  var lastHash []byte
+  err := bc.db.View(func(tx *bolt.Tx) error {
+    b := tx.Bucket([]byte(blocksBucket))
+    lastHash = b.Get([]byte("1"))
+
+    return nil
+  })
+
+  newBlock := NewBlock(data, lastHash)
+
+  err = bc.db.Update(func(tx *bolt.Tx) error {
+    b := tx.Bucket([]byte(blocksBucket))
+    err := b.Put(newBlock.Hash, newBlock.Serialize())
+    err = b.Put([]byte("1"), newBlock.Hash)
+    bc.tip = newBlock.Hash
+
+    return nil
+  })
 }
 
 func NewBlockchain() *Blockchain {
-  return &Blockchain{[]*Block{CreateGenesisBlock()}}
+  var tip []byte
+  db, err := bolt.Open(dbFile, 0000, nil)
+
+  err =db.Update(func(tx *bolt.Tx) error {
+    b := tx.Bucket([]byte(blocksBucket))
+
+    if b == nil {
+      genesis := NewGenesisBlock()
+      b, err := tx.CreateBucket([]byte(blocksBucket))
+      err = b.Put(genesis.Hash, genesis.Serialize())
+      err = b.put([]byte("1"), genesis.Hash)
+      tip = genesis.Hash
+    } else {
+      tip = b.Get([]byte("1"))
+    }
+
+    return nil
+  })
+
+  bc := Blockchain{tip, db}
+  return &bc
+}
+
+type BlockChainIterator struct {
+  currentHash []byte
+  db *bolt.DB
+}
+
+func (bc *Blockchain) Iterator() *BlockchainIterator {
+  bci := &BlockchainIterator{bc.tip, bc.db}
+
+  return bci
 }
 /*-------- END --------*/
 
@@ -136,6 +201,46 @@ func IntToHex(num int64) []byte {
 	}
 
 	return buff.Bytes()
+}
+
+/*-------- END --------*/
+
+/*======== CLI ========*/
+
+
+type CLI struct {
+  bc *Blockchain
+}
+
+func (cli *CLI) run() {
+  cli.validateArgs()
+
+  addBlockCmd := flag.NewFlagSet("addblock", flag.ExitOnError)
+  printChainCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
+
+  addBlockData := addBlockCmd.String("data", "", "Block data")
+
+  switch os.Args[1] {
+  case "addblock":
+    err := addBlockCmd.Parse(os.Args[2:])
+  case "printchain":
+    err := printChainCmd.Parse(os.Args[2:])
+  default:
+    cli.printUsage()
+    os.Exit(1)
+  }
+
+  if addBlockCmd.Parsed() {
+    if *addBlockData == "" {
+      addBlockCmd.Usage()
+      os.Exit(1)
+    }
+    cli.addBlock(*addBlockData)
+  }
+
+  if printChainCmd.Parsed() {
+    cli.printchain()
+  }
 }
 
 /*-------- END --------*/
