@@ -7,7 +7,8 @@ Crypton is an attempt at a crypto-currency made in golang. This project was star
 
 ## CLI Commands
 addblock -data BLOCK_DATA: add a block to the blockchain
-printchain:                print all the blocks of the blockchain
+
+printchain: print all the blocks of the blockchain
 
 
 ## How to use
